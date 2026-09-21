@@ -22,6 +22,9 @@ debian_has() {
 
 install_debian() {
 
+    # proot-distro та інші потрібні пакети Termux — автоматично.
+    ensure_termux_deps || return 1
+
     # --------------------------------------------------------
     # НЕ ПЕРЕВСТАНОВЛЮЄМО ІСНУЮЧИЙ DEBIAN
     # --------------------------------------------------------
@@ -75,6 +78,10 @@ apt-get update
 
 
 apt-get install -y \
+    ca-certificates \
+    curl \
+    xz-utils \
+    binutils \
     dbus-x11 \
     x11-utils \
     mesa-utils \

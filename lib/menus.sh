@@ -53,24 +53,22 @@ start_menu() {
         clear
 
         echo "========== START =========="
-        echo "[1] Install Debian + XFCE4"
-        echo "[2] Start XFCE4"
-        echo "[3] Start Termux:X11"
-        echo "[4] Start PulseAudio"
-        echo "[5] Start Terminal"
-        echo "[6] Restart XFCE4"
+        echo "[1] Start XFCE4"
+        echo "[2] Start Termux:X11"
+        echo "[3] Start PulseAudio"
+        echo "[4] Start Terminal"
+        echo "[5] Restart XFCE4"
         echo "[0] Back"
 
         printf "> "
         read -r choice
 
         case "$choice" in
-            1) install_debian ;;
-            2) start_xfce ;;
-            3) start_x11 ;;
-            4) start_pulse ;;
-            5) start_terminal ;;
-            6) restart_xfce ;;
+            1) start_xfce ;;
+            2) start_x11 ;;
+            3) start_pulse ;;
+            4) start_terminal ;;
+            5) restart_xfce ;;
             0) return ;;
             *) warn "Unknown option." ;;
         esac
@@ -103,8 +101,8 @@ installation() {
             1) install_debian ;;
             2) install_termux ;;
             3) box_menu ;;
-            4) pkg install -y pulseaudio ;;
-            5) pkg install -y termux-x11-nightly ;;
+            4) termux_install pulseaudio ;;
+            5) termux_install termux-x11-nightly ;;
             6) install_debian ;;
             7) wine_menu ;;
             0) return ;;

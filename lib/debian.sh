@@ -20,6 +20,70 @@ debian_has() {
     debian bash -c 'command -v "$1" >/dev/null 2>&1' _ "$1"
 }
 
+# ------------------------------------------------------------
+# Rootfs Debian: proot-distro за замовчуванням качає з easycli.sh.
+# Якщо той сервер недоступний — у логу видно ~43 байти й
+# "Integrity checking failed". Тому заздалегідь кладемо той самий файл
+# з GitHub Releases у кеш proot-distro; він сам перевірить sha256.
+# ------------------------------------------------------------
+
+debian_prefetch_rootfs() {
+    local plugin="$PREFIX/etc/proot-distro/debian.sh"
+    local cache="$PREFIX/var/lib/proot-distro/dlcache"
+    local arch url name ver sha want
+
+    case "$(uname -m)" in
+        aarch64|arm64)  arch="aarch64" ;;
+        armv7l|armv8l)  arch="arm" ;;
+        x86_64)         arch="x86_64" ;;
+        i686|i386)      arch="i686" ;;
+        *)              return 1 ;;
+    esac
+
+    [ -f "$plugin" ] || return 1
+
+    url="$(sed -n "s/^TARBALL_URL\['$arch'\]=\"\(.*\)\"\$/\1/p" "$plugin" | head -n 1)"
+    want="$(sed -n "s/^TARBALL_SHA256\['$arch'\]=\"\(.*\)\"\$/\1/p" "$plugin" | head -n 1)"
+
+    [ -n "$url" ] || return 1
+
+    name="${url##*/}"
+    ver="$(printf '%s' "$name" | sed -n 's/.*-pd-\(v[0-9.]*\)\.tar\.xz$/\1/p')"
+
+    [ -n "$ver" ] || return 1
+
+    mkdir -p "$cache"
+
+    # Уже завантажений цілий файл — нічого не робимо.
+    if [ -f "$cache/$name" ] && [ -n "$want" ]; then
+        sha="$(sha256sum "$cache/$name" | awk '{ print $1 }')"
+        [ "$sha" = "$want" ] && return 0
+    fi
+
+    rm -f "$cache/$name" "$cache/$name.tmp"
+
+    info "Downloading Debian rootfs from GitHub..."
+
+    curl -fL --retry 3 \
+        -o "$cache/$name.tmp" \
+        "https://github.com/termux/proot-distro/releases/download/${ver}/${name}" || {
+        rm -f "$cache/$name.tmp"
+        return 1
+    }
+
+    if [ -n "$want" ]; then
+        sha="$(sha256sum "$cache/$name.tmp" | awk '{ print $1 }')"
+
+        if [ "$sha" != "$want" ]; then
+            warn "Checksum of the GitHub file does not match, ignoring it."
+            rm -f "$cache/$name.tmp"
+            return 1
+        fi
+    fi
+
+    mv -f "$cache/$name.tmp" "$cache/$name"
+}
+
 install_debian() {
 
     # proot-distro та інші потрібні пакети Termux — автоматично.
@@ -33,6 +97,10 @@ install_debian() {
         ok "Debian container already exists."
     else
         info "Debian container not found."
+
+        debian_prefetch_rootfs ||
+            warn "Could not get the rootfs from GitHub, using the default proot-distro mirror."
+
         info "Installing Debian..."
 
         proot-distro install debian || {

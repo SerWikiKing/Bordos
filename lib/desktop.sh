@@ -36,6 +36,29 @@ start_xfce() {
 
 . /etc/profile.d/linux-manager-gpu.sh
 
+# Zink+Turnip з увімкненим композитингом XFCE (xfwm4) дають чорний
+# екран з самим лише курсором — відома проблема поєднання
+# Zink/Turnip + compositing + XFCE на Termux:X11. Вимикаємо
+# композитинг один раз при першому запуску; якщо потім увімкнеш
+# його вручну в Window Manager Tweaks, цей запис більше не чіпається.
+XFWM_CFG="$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml"
+
+if [ ! -f "$XFWM_CFG" ]; then
+
+    mkdir -p "$(dirname "$XFWM_CFG")"
+
+    cat > "$XFWM_CFG" <<'XFWM4'
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="false"/>
+  </property>
+</channel>
+XFWM4
+
+fi
+
 printf 'DISPLAY=%s\n' "$DISPLAY"
 
 printf 'XDG_RUNTIME_DIR=%s\n' "$XDG_RUNTIME_DIR"

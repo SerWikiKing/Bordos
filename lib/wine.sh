@@ -648,6 +648,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 
+# Ці ставимо як звичайні arm64-пакети: Box64 підмінює їх власними
+# ARM64-обгортками (X11, GL/Vulkan, PulseAudio, звук тощо), тому arm64-
+# версія якраз потрібна.
 for p in \
     libasound2 libpulse0 libx11-6 libxext6 libxrender1 libxi6 \
     libxcursor1 libxrandr2 libxinerama1 libxcomposite1 \
@@ -660,6 +663,23 @@ do
         echo "  skipped: $p"
     fi
 done
+
+# libunwind Wine потрібен по-справжньому у вигляді x86_64-файлу — Box64
+# його не підміняє своєю ARM64-версією. У Debian пакет box64 (dfsg)
+# власного x86_64 libunwind не несе, тому додаємо amd64 як другу
+# архітектуру й ставимо саме amd64-пакет (це лише файл бібліотеки,
+# запускати його не потрібно, apt/dpkg просто розпакують потрібні .so).
+if ! dpkg --print-foreign-architectures 2>/dev/null | grep -qx amd64; then
+    echo "Enabling amd64 as a second architecture (for x86_64 libunwind)..."
+    dpkg --add-architecture amd64
+    apt-get update
+fi
+
+if apt-get install -y libunwind8:amd64 >/dev/null 2>&1; then
+    echo "  ok:      libunwind8:amd64"
+else
+    echo "  skipped: libunwind8:amd64"
+fi
 WINE_LIBS
 
     ok "Done."

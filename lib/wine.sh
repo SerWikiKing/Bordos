@@ -307,6 +307,12 @@ fi
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 
+# Дає видно причину падіння (SIGSEGV/SIGILL/...) замість тихого виходу
+# без жодного логу — саме так, як зараз, без цих змінних, box64 мовчки
+# зникає, коли щось іде не так.
+export BOX64_LOG="${BOX64_LOG:-1}"
+export BOX64_SHOWSEGV="${BOX64_SHOWSEGV:-1}"
+
 EMU="$(cat "$W/.ldm-emu" 2>/dev/null || echo box64)"
 
 if ! command -v "$EMU" >/dev/null 2>&1; then
@@ -814,7 +820,15 @@ echo "X11 connection OK."
 
 echo "Starting Wine Desktop ($WINE_DESKTOP_RES)..."
 
-exec /usr/local/bin/wine explorer "/desktop=Shell,${WINE_DESKTOP_RES}"
+export BOX64_LOG="${BOX64_LOG:-2}"
+export BOX64_SHOWSEGV="${BOX64_SHOWSEGV:-1}"
+
+/usr/local/bin/wine explorer "/desktop=Shell,${WINE_DESKTOP_RES}"
+rc=$?
+
+echo "wine exited with code $rc"
+
+exit "$rc"
 
 WINE_DESKTOP_SCRIPT
 

@@ -8,6 +8,7 @@ BASE="$HOME/.linux-desktop-manager"
 CFG="$BASE/config.conf"
 LOG="$BASE/logs"
 XFCE_LOG="$LOG/xfce.log"
+WINE_DESKTOP_LOG="$LOG/wine-desktop.log"
 
 mkdir -p "$BASE" "$LOG"
 

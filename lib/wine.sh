@@ -16,6 +16,7 @@
 # ============================================================
 
 WINE_REPO="Kron4ek/Wine-Builds"
+WINEGE_REPO="GloriousEggroll/wine-ge-custom"
 WINE_ROOT="/opt/wine"
 WINE_RUN_ENV=(DISPLAY=:0 XDG_RUNTIME_DIR=/tmp PULSE_SERVER=127.0.0.1)
 
@@ -33,6 +34,18 @@ wine_arch() {
 
 wine_active_name() {
     cfg_get WINE_ACTIVE none
+}
+
+wine_is_ge() {
+    [ "$(wine_type)" = "wine-ge" ]
+}
+
+wine_type_label() {
+    case "${1:-$(wine_type)}" in
+        wine-ge) echo "wine-ge (GloriousEggroll, DXVK+VKD3D+FAudio built in)" ;;
+        proton)  echo "proton" ;;
+        *)       echo "${1:-$(wine_type)}" ;;
+    esac
 }
 
 # amd64 / amd64-wow64 -> Box64, x86 -> Box86
@@ -61,6 +74,7 @@ wine_build_name() {
     local ver="$1" type="$2" arch="$3"
 
     case "$type" in
+        wine-ge)     echo "wine-lutris-${ver}-x86_64" ;;
         proton)      echo "wine-proton-${ver}-${arch}" ;;
         staging)     echo "wine-${ver}-staging-${arch}" ;;
         staging-tkg) echo "wine-${ver}-staging-tkg-${arch}" ;;
@@ -71,10 +85,19 @@ wine_build_name() {
 wine_release_tag() {
     local ver="$1" type="$2"
 
-    if [ "$type" = "proton" ]; then
-        echo "proton-${ver}"
+    case "$type" in
+        # У GloriousEggroll версія й тег релізу — те саме (напр. GE-Proton8-26).
+        wine-ge) echo "$ver" ;;
+        proton)  echo "proton-${ver}" ;;
+        *)       echo "$ver" ;;
+    esac
+}
+
+wine_repo_for_type() {
+    if [ "${1:-$(wine_type)}" = "wine-ge" ]; then
+        echo "$WINEGE_REPO"
     else
-        echo "${ver}"
+        echo "$WINE_REPO"
     fi
 }
 
@@ -84,12 +107,14 @@ wine_release_tag() {
 
 wine_list_versions() {
     local type="$1"
-    local tags="" chunk page
+    local repo tags="" chunk page
+
+    repo="$(wine_repo_for_type "$type")"
 
     for page in 1 2 3 4; do
         chunk="$(
             curl -fsSL --max-time 20 \
-                "https://api.github.com/repos/${WINE_REPO}/releases?per_page=100&page=${page}" \
+                "https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}" \
                 2>/dev/null |
                 grep -o '"tag_name": *"[^"]*"' |
                 sed 's/.*: *"//; s/"$//'
@@ -104,18 +129,34 @@ wine_list_versions() {
     if [ -z "$tags" ]; then
         tags="$(
             curl -fsSL --max-time 20 \
-                "https://github.com/${WINE_REPO}/releases.atom" \
+                "https://github.com/${repo}/releases.atom" \
                 2>/dev/null |
                 grep -o 'releases/tag/[^"]*"' |
                 sed 's|releases/tag/||; s/"$//'
         )"
     fi
 
-    if [ "$type" = "proton" ]; then
-        printf '%s\n' "$tags" | sed -n 's/^proton-//p'
-    else
-        printf '%s\n' "$tags" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$'
-    fi | sort -Vru
+    case "$type" in
+
+        wine-ge)
+            # Пропускаємо варіанти під конкретні гри (-LoL і т.п.);
+            # їх завжди можна ввести вручну через [m].
+            printf '%s\n' "$tags" |
+                grep -E '^GE-Proton[0-9]+-[0-9]+$' |
+                sort -t- -k2 -k3 -Vr
+            ;;
+
+        proton)
+            printf '%s\n' "$tags" | sed -n 's/^proton-//p' | sort -Vru
+            ;;
+
+        *)
+            printf '%s\n' "$tags" |
+                grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' |
+                sort -Vru
+            ;;
+
+    esac
 }
 
 # ------------------------------------------------------------
@@ -341,13 +382,24 @@ wine_activate() {
 wine_install() {
     local ver="$1" type="$2" arch="$3"
 
-    local name tag base url emu
+    local name tag repo base url emu sums_url sums_algo
 
     name="$(wine_build_name "$ver" "$type" "$arch")"
     tag="$(wine_release_tag "$ver" "$type")"
-    base="https://github.com/${WINE_REPO}/releases/download/${tag}"
+    repo="$(wine_repo_for_type "$type")"
+    base="https://github.com/${repo}/releases/download/${tag}"
     url="${base}/${name}.tar.xz"
-    emu="$(wine_emu "$arch")"
+
+    if [ "$type" = "wine-ge" ]; then
+        # Один готовий x86_64-білд (з wow64 для 32-бітних застосунків) — завжди Box64.
+        sums_url="${base}/${name}.sha512sum"
+        sums_algo="sha512sum"
+        emu="box64"
+    else
+        sums_url="${base}/sha256sums.txt"
+        sums_algo="sha256sum"
+        emu="$(wine_emu "$arch")"
+    fi
 
     install_debian || return 1
 
@@ -376,7 +428,8 @@ wine_install() {
 
     debian env \
         WINE_URL="$url" \
-        WINE_SUMS="${base}/sha256sums.txt" \
+        WINE_SUMS="$sums_url" \
+        WINE_SUMS_ALGO="$sums_algo" \
         WINE_NAME="$name" \
         WINE_EMU="$emu" \
         bash -s <<'WINE_INSTALL'
@@ -414,7 +467,7 @@ if curl -fsSL --retry 2 -o "$tmp/sums.txt" "$WINE_SUMS"; then
             "$tmp/sums.txt"
     )"
 
-    have_sum="$(sha256sum "$tmp/wine.tar.xz" | awk '{ print $1 }')"
+    have_sum="$("$WINE_SUMS_ALGO" "$tmp/wine.tar.xz" | awk '{ print $1 }')"
 
     if [ -z "$want" ]; then
         echo "No checksum found for this file, skipping verification."
@@ -474,7 +527,7 @@ wine_download() {
     wine_pick_version || return 0
 
     echo
-    info "Type: $type | Architecture: $arch | Version: $WINE_PICKED"
+    info "Type: $(wine_type_label "$type") | Architecture: $(wine_arch_display) | Version: $WINE_PICKED"
 
     wine_install "$WINE_PICKED" "$type" "$arch"
 }
@@ -546,14 +599,29 @@ wine_choose_type() {
         "staging (Wine + Staging patches)" \
         "staging-tkg (Staging + TKG patches)" \
         "proton (Valve's Wine)" \
+        "wine-ge (GloriousEggroll, ready for games)" \
         || return 0
 
     cfg_set WINE_TYPE "${PICKED%% *}"
 
-    ok "Build type: $(wine_type)"
+    ok "Build type: $(wine_type_label)"
+}
+
+wine_arch_display() {
+    if wine_is_ge; then
+        echo "x86_64 (fixed, Box64)"
+    else
+        echo "$(wine_arch) ($(wine_emu "$(wine_arch)"))"
+    fi
 }
 
 wine_choose_arch() {
+
+    if wine_is_ge; then
+        warn "wine-ge ships one x86_64 build (with built-in wow64); there is nothing to choose."
+        return 0
+    fi
+
     menu_pick "WINE ARCHITECTURE (now: $(wine_arch))" \
         "amd64 (64-bit, Box64)" \
         "amd64-wow64 (64-bit + 32-bit apps, Box64)" \
@@ -562,7 +630,7 @@ wine_choose_arch() {
 
     cfg_set WINE_ARCH "${PICKED%% *}"
 
-    ok "Architecture: $(wine_arch) ($(wine_emu "$(wine_arch)"))"
+    ok "Architecture: $(wine_arch_display)"
 }
 
 # ------------------------------------------------------------
@@ -645,6 +713,123 @@ wine_run_exe() {
 }
 
 # ------------------------------------------------------------
+# WINE DESKTOP — окрема "Windows-подібна" сесія замість XFCE4:
+# Wine показує на весь екран свій explorer.exe (робочий стіл,
+# ярлики, меню "Пуск"), і саме тут відкриваються запущені
+# програми — окремої DE поверх нема, XFCE4 не потрібен.
+# ------------------------------------------------------------
+
+wine_desktop_res() {
+    cfg_get WINE_DESKTOP_RES "1280x720"
+}
+
+wine_choose_desktop_res() {
+    menu_pick "WINE DESKTOP RESOLUTION (now: $(wine_desktop_res))"         "1280x720"         "1366x768"         "1920x1080"         "Custom"         || return 0
+
+    if [ "$PICKED" = "Custom" ]; then
+        local res
+        printf "Resolution (e.g. 1600x900): "
+        read -r res
+
+        [[ "$res" =~ ^[0-9]+x[0-9]+$ ]] || {
+            warn "Invalid resolution."
+            return 1
+        }
+
+        PICKED="$res"
+    fi
+
+    cfg_set WINE_DESKTOP_RES "$PICKED"
+
+    ok "Wine Desktop resolution: $(wine_desktop_res)"
+}
+
+start_wine_desktop() {
+
+    if [ "$(wine_active_name)" = "none" ]; then
+        warn "No active Wine build. Install one first: Settings -> WINE -> Download / install Wine."
+        return 1
+    fi
+
+    install_debian || return 1
+
+    start_x11 || return 1
+
+    start_pulse || true
+
+    case "$(gpu_mode)" in
+        turnip) install_freedreno || return 1 ;;
+        virgl)  start_virgl || return 1 ;;
+    esac
+
+    write_profile || return 1
+
+    local res
+    res="$(wine_desktop_res)"
+
+    rm -f "$WINE_DESKTOP_LOG"
+
+    info "Starting Wine Desktop ($res, $(wine_active_name)) with $(gpu_name)..."
+
+    proot-distro login debian         --shared-tmp         --         env         DISPLAY=:0         XDG_RUNTIME_DIR=/tmp         PULSE_SERVER=127.0.0.1         WINE_DESKTOP_RES="$res"         bash -s         >"$WINE_DESKTOP_LOG" 2>&1 <<'WINE_DESKTOP_SCRIPT' &
+
+. /etc/profile.d/linux-manager-gpu.sh
+
+printf 'DISPLAY=%s
+' "$DISPLAY"
+
+echo "Checking X11..."
+
+if ! command -v xdpyinfo >/dev/null 2>&1; then
+    echo "ERROR: xdpyinfo is missing."
+    exit 10
+fi
+
+if ! xdpyinfo >/dev/null 2>&1; then
+    echo "ERROR: Cannot connect to DISPLAY=$DISPLAY"
+    exit 11
+fi
+
+echo "X11 connection OK."
+
+echo "Starting Wine Desktop ($WINE_DESKTOP_RES)..."
+
+exec /usr/local/bin/wine explorer "/desktop=Shell,${WINE_DESKTOP_RES}"
+
+WINE_DESKTOP_SCRIPT
+
+    local pid=$!
+
+    sleep 4
+
+    echo
+    echo "========== WINE DESKTOP START =========="
+
+    cat "$WINE_DESKTOP_LOG" 2>/dev/null || true
+
+    echo "=========================================="
+
+    if kill -0 "$pid" >/dev/null 2>&1; then
+        ok "Wine Desktop started."
+    else
+        bad "Wine Desktop stopped."
+        echo
+        echo "Full log:"
+        cat "$WINE_DESKTOP_LOG" 2>/dev/null || true
+        return 1
+    fi
+}
+
+restart_wine_desktop() {
+
+    pkill -f 'wine.*explorer'         >/dev/null 2>&1 || true
+
+    sleep 1
+
+    start_wine_desktop
+}
+
+# ------------------------------------------------------------
 # WINE MENU
 # ------------------------------------------------------------
 
@@ -656,8 +841,8 @@ wine_menu() {
 
         echo "========== WINE =========="
         echo "Active:       $(wine_active_name)"
-        echo "Build type:   $(wine_type)"
-        echo "Architecture: $(wine_arch) ($(wine_emu "$(wine_arch)"))"
+        echo "Build type:   $(wine_type_label)"
+        echo "Architecture: $(wine_arch_display)"
         echo
         echo "[1] Download / install Wine (choose version)"
         echo "[2] Installed versions (switch active)"
@@ -667,6 +852,7 @@ wine_menu() {
         echo "[6] Install Wine libraries"
         echo "[7] Test Wine"
         echo "[8] Run a Windows program (.exe)"
+        echo "[9] Wine Desktop resolution (now: $(wine_desktop_res))"
         echo "[0] Back"
 
         printf "> "
@@ -681,6 +867,7 @@ wine_menu() {
             6) wine_install_libs ;;
             7) wine_test ;;
             8) wine_run_exe ;;
+            9) wine_choose_desktop_res ;;
             0) return ;;
             *) warn "Unknown option." ;;
         esac

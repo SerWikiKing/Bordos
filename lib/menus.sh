@@ -53,11 +53,13 @@ start_menu() {
         clear
 
         echo "========== START =========="
-        echo "[1] Start XFCE4"
-        echo "[2] Start Termux:X11"
-        echo "[3] Start PulseAudio"
-        echo "[4] Start Terminal"
-        echo "[5] Restart XFCE4"
+        echo "[1] Start XFCE4 (Linux desktop)"
+        echo "[2] Start Wine Desktop (Windows-like shell, active: $(wine_active_name))"
+        echo "[3] Start Termux:X11"
+        echo "[4] Start PulseAudio"
+        echo "[5] Start Terminal"
+        echo "[6] Restart XFCE4"
+        echo "[7] Restart Wine Desktop"
         echo "[0] Back"
 
         printf "> "
@@ -65,10 +67,12 @@ start_menu() {
 
         case "$choice" in
             1) start_xfce ;;
-            2) start_x11 ;;
-            3) start_pulse ;;
-            4) start_terminal ;;
-            5) restart_xfce ;;
+            2) start_wine_desktop ;;
+            3) start_x11 ;;
+            4) start_pulse ;;
+            5) start_terminal ;;
+            6) restart_xfce ;;
+            7) restart_wine_desktop ;;
             0) return ;;
             *) warn "Unknown option." ;;
         esac
@@ -90,7 +94,7 @@ installation() {
         echo "[3] BOX"
         echo "[4] PulseAudio"
         echo "[5] Termux:X11"
-        echo "[6] XFCE4 Additional Components"
+        echo "[6] Reinstall Debian + XFCE4 (erase everything inside)"
         echo "[7] WINE"
         echo "[0] Back"
 
@@ -103,7 +107,7 @@ installation() {
             3) box_menu ;;
             4) termux_install pulseaudio ;;
             5) termux_install termux-x11-nightly ;;
-            6) install_debian ;;
+            6) reinstall_debian ;;
             7) wine_menu ;;
             0) return ;;
             *) warn "Unknown option." ;;

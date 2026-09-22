@@ -174,3 +174,37 @@ DEBIAN_APT
 
     return "$result"
 }
+
+# ------------------------------------------------------------
+# REINSTALL: видаляє контейнер Debian повністю і ставить заново.
+# Разом з ним зникають Wine, Box64/Box86 і все встановлене
+# всередині — GPU-профіль і встановлені Termux-пакети не чіпаються.
+# ------------------------------------------------------------
+
+reinstall_debian() {
+
+    warn "This will DELETE the whole Debian container:"
+    warn "Wine builds, Box64/Box86, and everything installed inside Debian."
+
+    printf "Type 'yes' to continue: "
+    read -r answer
+
+    if [ "$answer" != "yes" ]; then
+        info "Cancelled."
+        return 0
+    fi
+
+    if debian_exists; then
+        info "Removing the existing Debian container..."
+
+        proot-distro remove debian || {
+            bad "Could not remove the existing Debian container."
+            return 1
+        }
+    fi
+
+    # Стара активна збірка Wine пропала разом з контейнером.
+    cfg_set WINE_ACTIVE ""
+
+    install_debian
+}

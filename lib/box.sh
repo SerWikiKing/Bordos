@@ -20,8 +20,8 @@ box64_add_repo() {
 set -e
 command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg
 mkdir -p /etc/apt/trusted.gpg.d
-wget -qO /etc/apt/sources.list.d/box64.list "$BOX64_DEBS_URL/box64.list"
-wget -qO- "$BOX64_DEBS_URL/KEY.gpg" |
+curl -fsSL "$BOX64_DEBS_URL/box64.list" -o /etc/apt/sources.list.d/box64.list
+curl -fsSL "$BOX64_DEBS_URL/KEY.gpg" |
     gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg
 REPO
 }
@@ -31,8 +31,8 @@ box86_add_repo() {
 set -e
 command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg
 mkdir -p /etc/apt/trusted.gpg.d
-wget -qO /etc/apt/sources.list.d/box86.list "$BOX86_DEBS_URL/box86.list"
-wget -qO- "$BOX86_DEBS_URL/KEY.gpg" |
+curl -fsSL "$BOX86_DEBS_URL/box86.list" -o /etc/apt/sources.list.d/box86.list
+curl -fsSL "$BOX86_DEBS_URL/KEY.gpg" |
     gpg --dearmor -o /etc/apt/trusted.gpg.d/box86-debs-archive-keyring.gpg
 REPO
 }

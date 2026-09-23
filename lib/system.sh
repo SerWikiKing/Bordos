@@ -26,7 +26,9 @@ repair() {
 
     write_profile || true
 
-    echo "Step 5/7: X11..."
+    echo "Step 5/7: X11 + storage (drive D:)..."
+
+    ensure_storage || true
 
     start_x11 || true
 

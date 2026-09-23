@@ -20,10 +20,13 @@ start_xfce() {
 
     rm -f "$XFCE_LOG"
 
+    debian_refresh_binds
+
     info "Starting XFCE4 with $(gpu_name)..."
 
     proot-distro login debian \
         --shared-tmp \
+        "${DEBIAN_BINDS[@]}" \
         -- \
         env \
         DISPLAY=:0 \

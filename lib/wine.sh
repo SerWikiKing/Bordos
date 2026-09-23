@@ -305,6 +305,15 @@ fi
 [ -f /etc/profile.d/linux-manager-gpu.sh ] && . /etc/profile.d/linux-manager-gpu.sh
 
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
+
+# Без цього при створенні префікса Wine показує діалоги "Install Wine
+# Mono / Gecko?" (збірки Kron4ek їх не містять) і чекає на натискання —
+# на Termux:X11 без оболонки це виглядає як чорний екран, що "висить".
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
+
+# Диск D: -> внутрішня пам'ять Android (/storage/emulated/0).
+[ "$prog" = "wineserver" ] || /usr/local/bin/ldm-map-drives >&2 || true
+
 # "-all" ховає навіть рядок, яким Wine пояснює, чому він щойно вийшов
 # (саме це і сталося: box64/box32 відпрацювали чисто, а "wine exited
 # with code 1" лишився без жодного пояснення). err+all показує тільки
@@ -341,6 +350,35 @@ exec "$EMU" "$bin" "$@"
 RUN
 
 chmod +x /usr/local/bin/ldm-wine-run
+
+# D: -> /storage/emulated/0 (створює symlink у dosdevices префікса).
+cat > /usr/local/bin/ldm-map-drives <<'MAP'
+#!/bin/bash
+P="${WINEPREFIX:-$HOME/.wine}"
+T="${LDM_STORAGE:-/storage/emulated/0}"
+L="$P/dosdevices/d:"
+
+# Префікс ще не створений — dosdevices з'явиться після першого wineboot.
+[ -d "$P/dosdevices" ] || exit 0
+
+if [ ! -d "$T" ]; then
+    echo "[ldm] $T is not visible inside Debian - drive D: not created." >&2
+    echo "[ldm] Give Termux storage permission (termux-setup-storage) and restart." >&2
+    exit 0
+fi
+
+if [ -L "$L" ]; then
+    [ "$(readlink "$L")" = "$T" ] && exit 0
+    rm -f "$L"
+elif [ -e "$L" ]; then
+    # d: вже є як звичайний каталог/файл — не чіпаємо.
+    exit 0
+fi
+
+ln -s "$T" "$L" && echo "[ldm] Drive D: -> $T"
+MAP
+
+chmod +x /usr/local/bin/ldm-map-drives
 
 mk() {
     printf '#!/bin/bash\nexec /usr/local/bin/ldm-wine-run %s "$@"\n' "$2" \
@@ -664,6 +702,8 @@ apt-get update
 for p in \
     libasound2 libpulse0 libx11-6 libxext6 libxrender1 libxi6 \
     libxcursor1 libxrandr2 libxinerama1 libxcomposite1 \
+    libxfixes3 libxxf86vm1 libxdamage1 libxkbcommon0 \
+    libegl1 libgl1 libdbus-1-3 \
     libfreetype6 libfontconfig1 libgnutls30 libglu1-mesa \
     libsdl2-2.0-0 libvulkan1
 do
@@ -690,9 +730,27 @@ if apt-get install -y libunwind8:amd64 >/dev/null 2>&1; then
 else
     echo "  skipped: libunwind8:amd64"
 fi
+
+# Маркер: бібліотеки вже ставились (щоб Wine Desktop не ставив їх щоразу).
+mkdir -p /opt/wine
+touch /opt/wine/.ldm-libs-v2
 WINE_LIBS
 
     ok "Done."
+}
+
+# Без x86_64-обгорток X11/GL Wine не може завантажити winex11.drv і
+# запускається "у нікуди" (чорний екран) — тому при першому запуску
+# Wine Desktop бібліотеки ставляться автоматично.
+wine_ensure_libs() {
+
+    if debian test -f /opt/wine/.ldm-libs-v2; then
+        return 0
+    fi
+
+    info "First Wine Desktop launch: installing required libraries..."
+
+    wine_install_libs
 }
 
 wine_test() {
@@ -777,24 +835,60 @@ wine_desktop_res() {
 }
 
 wine_choose_desktop_res() {
-    menu_pick "WINE DESKTOP RESOLUTION (now: $(wine_desktop_res))"         "1280x720"         "1366x768"         "1920x1080"         "Custom"         || return 0
 
-    if [ "$PICKED" = "Custom" ]; then
-        local res
-        printf "Resolution (e.g. 1600x900): "
-        read -r res
+    menu_pick "WINE DESKTOP RESOLUTION (now: $(wine_desktop_res))" \
+        "auto (fill the whole Termux:X11 screen)" \
+        "1280x720" \
+        "1366x768" \
+        "1920x1080" \
+        "Custom" \
+        || return 0
 
-        [[ "$res" =~ ^[0-9]+x[0-9]+$ ]] || {
-            warn "Invalid resolution."
-            return 1
-        }
+    case "$PICKED" in
 
-        PICKED="$res"
-    fi
+        auto*)
+            PICKED="auto"
+            ;;
+
+        Custom)
+            local res
+
+            printf "Resolution (e.g. 1600x900): "
+            read -r res
+
+            [[ "$res" =~ ^[0-9]+x[0-9]+$ ]] || {
+                warn "Invalid resolution."
+                return 1
+            }
+
+            PICKED="$res"
+            ;;
+
+    esac
 
     cfg_set WINE_DESKTOP_RES "$PICKED"
 
     ok "Wine Desktop resolution: $(wine_desktop_res)"
+}
+
+# Диск D: зараз (без запуску робочого столу).
+wine_map_drive_now() {
+
+    install_debian || return 1
+
+    ensure_storage || return 1
+
+    wine_write_wrappers || return 1
+
+    if ! debian test -d "/root/.wine/dosdevices"; then
+        warn "The Wine prefix does not exist yet."
+        info "Start Wine Desktop once - it creates the prefix and maps D: automatically."
+        return 0
+    fi
+
+    debian /usr/local/bin/ldm-map-drives
+
+    ok "Drive D: -> $STORAGE_HOST (restart Wine Desktop to see it)."
 }
 
 start_wine_desktop() {
@@ -805,6 +899,16 @@ start_wine_desktop() {
     fi
 
     install_debian || return 1
+
+    # Диск D: -> /storage/emulated/0 (потрібен дозвіл Android на файли).
+    ensure_storage ||
+        warn "Drive D: will not exist until Termux gets storage access."
+
+    wine_ensure_libs ||
+        warn "Could not install Wine libraries - Wine may not open any window."
+
+    # Оновлюємо обгортки (диск D:, WINEDLLOVERRIDES) без повторної активації збірки.
+    wine_write_wrappers || return 1
 
     start_x11 || return 1
 
@@ -822,15 +926,28 @@ start_wine_desktop() {
 
     rm -f "$WINE_DESKTOP_LOG"
 
+    debian_refresh_binds
+
     info "Starting Wine Desktop ($res, $(wine_active_name)) with $(gpu_name)..."
 
-    proot-distro login debian         --shared-tmp         --         env         DISPLAY=:0         XDG_RUNTIME_DIR=/tmp         PULSE_SERVER=127.0.0.1         WINE_DESKTOP_RES="$res"         bash -s         >"$WINE_DESKTOP_LOG" 2>&1 <<'WINE_DESKTOP_SCRIPT' &
+    proot-distro login debian \
+        --shared-tmp \
+        "${DEBIAN_BINDS[@]}" \
+        -- \
+        env \
+        DISPLAY=:0 \
+        XDG_RUNTIME_DIR=/tmp \
+        PULSE_SERVER=127.0.0.1 \
+        XKB_CONFIG_ROOT=/usr/share/X11/xkb \
+        WINE_DESKTOP_RES="$res" \
+        bash -s \
+        >"$WINE_DESKTOP_LOG" 2>&1 <<'WINE_DESKTOP_SCRIPT' &
 
 . /etc/profile.d/linux-manager-gpu.sh
 
-printf 'DISPLAY=%s
-' "$DISPLAY"
+export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 
+echo "DISPLAY=$DISPLAY"
 echo "Checking X11..."
 
 if ! command -v xdpyinfo >/dev/null 2>&1; then
@@ -845,9 +962,45 @@ fi
 
 echo "X11 connection OK."
 
-echo "Starting Wine Desktop ($WINE_DESKTOP_RES)..."
+RES="$WINE_DESKTOP_RES"
 
-/usr/local/bin/wine explorer "/desktop=Shell,${WINE_DESKTOP_RES}"
+if [ "$RES" = "auto" ]; then
+    RES="$(xdpyinfo 2>/dev/null | awk '/dimensions:/ { print $2; exit }')"
+    RES="${RES:-1280x720}"
+fi
+
+# Старий wineserver (із попереднього запуску) тримає стару конфігурацію
+# й dosdevices — завжди починаємо з чистого.
+echo "Stopping old Wine processes..."
+/usr/local/bin/wineserver -k >/dev/null 2>&1 || true
+sleep 1
+
+# Перший запуск: спершу створюємо префікс окремо. Саме ця фаза на Box64
+# триває 1-3 хвилини — весь цей час екран Termux:X11 чорний, це нормально.
+if [ ! -f "$WINEPREFIX/system.reg" ]; then
+    echo "First launch: creating the Wine prefix (1-3 minutes, black screen is normal)..."
+    /usr/local/bin/wine wineboot -u
+    echo "wineboot exit code: $?"
+    timeout 90 /usr/local/bin/wineserver -w || true
+fi
+
+# D: -> /storage/emulated/0 (до старту wineserver, щоб він одразу побачив диск).
+/usr/local/bin/ldm-map-drives
+
+# Синій фон замість чорного — одразу видно, що робочий стіл Wine працює.
+# Ставиться один раз; змінити колір можна в regedit
+# (HKCU\Control Panel\Colors\Background).
+if [ ! -f "$WINEPREFIX/.ldm-bg-done" ]; then
+    /usr/local/bin/wine reg add 'HKCU\Control Panel\Colors' \
+        /v Background /t REG_SZ /d '0 78 152' /f >/dev/null 2>&1 || true
+    timeout 60 /usr/local/bin/wineserver -w || true
+    touch "$WINEPREFIX/.ldm-bg-done"
+fi
+
+echo "LDM: launching explorer ($RES)"
+
+# Назва "shell" вмикає панель задач, меню Пуск і ярлики на столі.
+/usr/local/bin/wine explorer "/desktop=shell,${RES}"
 rc=$?
 
 echo "wine exited with code $rc"
@@ -857,8 +1010,23 @@ exit "$rc"
 WINE_DESKTOP_SCRIPT
 
     local pid=$!
+    local waited=0
 
-    sleep 4
+    # Чекаємо, поки скрипт дійде до запуску explorer (на першому запуску
+    # створення префікса займає час), але не довше 4 хвилин.
+    info "Waiting for Wine (the first launch can take a few minutes)..."
+
+    while kill -0 "$pid" >/dev/null 2>&1 &&
+          ! grep -q 'LDM: launching explorer' "$WINE_DESKTOP_LOG" 2>/dev/null &&
+          [ "$waited" -lt 240 ]; do
+        sleep 2
+        waited=$((waited + 2))
+        printf '.'
+    done
+
+    echo
+
+    sleep 5
 
     echo
     echo "========== WINE DESKTOP START =========="
@@ -870,7 +1038,8 @@ WINE_DESKTOP_SCRIPT
     echo "(open it in [5] Start Terminal with: less \"$WINE_DESKTOP_LOG\")"
 
     if kill -0 "$pid" >/dev/null 2>&1; then
-        ok "Wine Desktop started."
+        ok "Wine Desktop started. Switch to the Termux:X11 window."
+        info "Drive D: = $STORAGE_HOST (see 'This PC' / My Computer in Wine)."
     else
         bad "Wine Desktop stopped."
         echo
@@ -882,7 +1051,11 @@ WINE_DESKTOP_SCRIPT
 
 restart_wine_desktop() {
 
-    pkill -f 'wine.*explorer'         >/dev/null 2>&1 || true
+    pkill -f 'wine.*explorer' \
+        >/dev/null 2>&1 || true
+
+    pkill -f 'box64.*wineserver' \
+        >/dev/null 2>&1 || true
 
     sleep 1
 
@@ -914,6 +1087,7 @@ wine_menu() {
         echo "[8] Run a Windows program (.exe)"
         echo "[9] Wine Desktop resolution (now: $(wine_desktop_res))"
         echo "[10] Reset Wine prefix (fixes a silent 'exited with code 1')"
+        echo "[11] Map drive D: -> $STORAGE_HOST"
         echo "[0] Back"
 
         printf "> "
@@ -930,6 +1104,7 @@ wine_menu() {
             8) wine_run_exe ;;
             9) wine_choose_desktop_res ;;
             10) wine_reset_prefix ;;
+            11) wine_map_drive_now ;;
             0) return ;;
             *) warn "Unknown option." ;;
         esac

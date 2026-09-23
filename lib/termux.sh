@@ -91,13 +91,28 @@ install_termux() {
 start_x11() {
     ensure_termux_deps || return 1
 
-    info "Starting Termux:X11..."
+    local sock="${TMPDIR:-$PREFIX/tmp}/.X11-unix/X0"
 
-    XDG_RUNTIME_DIR="$TMPDIR" \
-        termux-x11 :0 \
-        >/dev/null 2>&1 &
+    if [ -S "$sock" ] && pgrep -f 'CmdEntryPoint' >/dev/null 2>&1; then
+        info "Termux:X11 server is already running."
+    else
+        info "Starting Termux:X11..."
 
-    sleep 2
+        XDG_RUNTIME_DIR="$TMPDIR" \
+            termux-x11 :0 \
+            >/dev/null 2>&1 &
+
+        # Чекаємо, поки X-сервер справді створить сокет
+        # (фіксований sleep 2 інколи був закороткий -> xdpyinfo не міг підключитись).
+        local i
+
+        for i in $(seq 1 20); do
+            [ -S "$sock" ] && break
+            sleep 1
+        done
+
+        [ -S "$sock" ] || warn "X11 socket not found yet, continuing anyway..."
+    fi
 
     info "Opening Termux:X11 Android window..."
 
@@ -109,6 +124,43 @@ start_x11() {
     sleep 2
 
     ok "Termux:X11 window opened."
+}
+
+# ------------------------------------------------------------
+# Пам'ять телефону (/storage/emulated/0) -> диск D: у Wine
+# ------------------------------------------------------------
+
+# Чи має Termux доступ до внутрішньої пам'яті.
+storage_ok() {
+    [ -d "$STORAGE_HOST" ] && ls "$STORAGE_HOST" >/dev/null 2>&1
+}
+
+# Просить у Android дозвіл на файли (termux-setup-storage), якщо його ще нема.
+ensure_storage() {
+    storage_ok && return 0
+
+    warn "Termux has no access to $STORAGE_HOST yet."
+
+    if have termux-setup-storage; then
+        info "Android will ask for storage permission - tap ALLOW..."
+
+        termux-setup-storage >/dev/null 2>&1 || true
+
+        local i
+
+        for i in $(seq 1 30); do
+            if storage_ok; then
+                ok "Storage access granted."
+                return 0
+            fi
+
+            sleep 1
+        done
+    fi
+
+    bad "No storage access. Enable it manually:"
+    bad "Android Settings -> Apps -> Termux -> Permissions -> Files / Storage -> Allow."
+    return 1
 }
 
 # ------------------------------------------------------------

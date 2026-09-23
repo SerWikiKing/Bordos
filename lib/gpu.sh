@@ -176,6 +176,12 @@ export MESA_LOADER_DRIVER_OVERRIDE=zink
 
 export TU_DEBUG=noconform
 
+# Turnip на Termux:X11 не має DRI3/dmabuf: без програмного WSI Zink
+# малює в нікуди -> чорний екран. Це змушує показ кадрів через CPU-копію.
+export MESA_VK_WSI_DEBUG=sw
+
+export ZINK_DESCRIPTORS=lazy
+
 unset GALLIUM_DRIVER
 unset VTEST_SOCK
 unset MESA_NO_ERROR
@@ -210,6 +216,8 @@ export LIBGL_DRI3_DISABLE=1
 unset VK_ICD_FILENAMES
 unset MESA_LOADER_DRIVER_OVERRIDE
 unset TU_DEBUG
+unset MESA_VK_WSI_DEBUG
+unset ZINK_DESCRIPTORS
 unset LD_LIBRARY_PATH
 unset LIBGL_DRIVERS_PATH
 unset LIBGL_ALWAYS_SOFTWARE
@@ -235,6 +243,8 @@ unset VK_ICD_FILENAMES
 unset LD_LIBRARY_PATH
 unset LIBGL_DRIVERS_PATH
 unset TU_DEBUG
+unset MESA_VK_WSI_DEBUG
+unset ZINK_DESCRIPTORS
 unset VTEST_SOCK
 
 PROFILE
@@ -253,6 +263,8 @@ unset LD_LIBRARY_PATH
 unset LIBGL_DRIVERS_PATH
 unset MESA_LOADER_DRIVER_OVERRIDE
 unset TU_DEBUG
+unset MESA_VK_WSI_DEBUG
+unset ZINK_DESCRIPTORS
 unset GALLIUM_DRIVER
 unset VTEST_SOCK
 unset MESA_NO_ERROR

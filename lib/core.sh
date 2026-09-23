@@ -10,6 +10,9 @@ LOG="$BASE/logs"
 XFCE_LOG="$LOG/xfce.log"
 WINE_DESKTOP_LOG="$LOG/wine-desktop.log"
 
+# Внутрішня пам'ять Android — те, що стане диском D: у Wine.
+STORAGE_HOST="/storage/emulated/0"
+
 mkdir -p "$BASE" "$LOG"
 
 # Міграція старого config, якщо це був саме файл.

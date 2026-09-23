@@ -10,9 +10,22 @@ debian_exists() {
     proot-distro login debian -- true >/dev/null 2>&1
 }
 
+# --bind для внутрішньої пам'яті Android: /storage/emulated/0 стає видимим
+# всередині Debian за тим самим шляхом (для диска D: у Wine).
+# Заповнює масив DEBIAN_BINDS (порожній, якщо доступу до пам'яті нема).
+debian_refresh_binds() {
+    DEBIAN_BINDS=()
+
+    if storage_ok; then
+        DEBIAN_BINDS=(--bind "$STORAGE_HOST:$STORAGE_HOST")
+    fi
+}
+
 # Виконати команду всередині Debian.
 debian() {
-    proot-distro login debian --shared-tmp -- "$@"
+    debian_refresh_binds
+
+    proot-distro login debian --shared-tmp "${DEBIAN_BINDS[@]}" -- "$@"
 }
 
 # Чи є команда всередині Debian (command — builtin, тому через bash -c).

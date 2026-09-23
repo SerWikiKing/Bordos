@@ -820,9 +820,6 @@ echo "X11 connection OK."
 
 echo "Starting Wine Desktop ($WINE_DESKTOP_RES)..."
 
-export BOX64_LOG="${BOX64_LOG:-2}"
-export BOX64_SHOWSEGV="${BOX64_SHOWSEGV:-1}"
-
 /usr/local/bin/wine explorer "/desktop=Shell,${WINE_DESKTOP_RES}"
 rc=$?
 
@@ -839,17 +836,19 @@ WINE_DESKTOP_SCRIPT
     echo
     echo "========== WINE DESKTOP START =========="
 
-    cat "$WINE_DESKTOP_LOG" 2>/dev/null || true
+    tail -n 60 "$WINE_DESKTOP_LOG" 2>/dev/null || true
 
     echo "=========================================="
+    echo "Full log: $WINE_DESKTOP_LOG"
+    echo "(open it in [5] Start Terminal with: less \"$WINE_DESKTOP_LOG\")"
 
     if kill -0 "$pid" >/dev/null 2>&1; then
         ok "Wine Desktop started."
     else
         bad "Wine Desktop stopped."
         echo
-        echo "Full log:"
-        cat "$WINE_DESKTOP_LOG" 2>/dev/null || true
+        echo "Last 60 lines:"
+        tail -n 60 "$WINE_DESKTOP_LOG" 2>/dev/null || true
         return 1
     fi
 }

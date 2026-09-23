@@ -305,7 +305,11 @@ fi
 [ -f /etc/profile.d/linux-manager-gpu.sh ] && . /etc/profile.d/linux-manager-gpu.sh
 
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
-export WINEDEBUG="${WINEDEBUG:--all}"
+# "-all" ховає навіть рядок, яким Wine пояснює, чому він щойно вийшов
+# (саме це і сталося: box64/box32 відпрацювали чисто, а "wine exited
+# with code 1" лишився без жодного пояснення). err+all показує тільки
+# власні err-повідомлення Wine, без "fixme"-шуму.
+export WINEDEBUG="${WINEDEBUG:-err+all}"
 
 # Дає видно причину падіння (SIGSEGV/SIGILL/...) замість тихого виходу
 # без жодного логу — саме так, як зараз, без цих змінних, box64 мовчки
@@ -723,6 +727,29 @@ wine_test() {
     echo "==============================="
 }
 
+wine_reset_prefix() {
+
+    install_debian || return 1
+
+    echo
+    echo "This deletes the Wine prefix (~/.wine inside Debian) — any"
+    echo "installed Windows programs, settings and shortcuts in it"
+    echo "are lost. A fresh, empty one is created on the next launch."
+    echo "Useful when Wine exits immediately with no error (a prefix"
+    echo "half-built by an earlier failed/interrupted run)."
+    printf "Type YES to continue: "
+    read -r confirm
+
+    if [ "$confirm" != "YES" ]; then
+        warn "Cancelled."
+        return 0
+    fi
+
+    debian bash -lc 'rm -rf "$HOME/.wine"'
+
+    ok "Wine prefix removed."
+}
+
 wine_run_exe() {
 
     install_debian || return 1
@@ -886,6 +913,7 @@ wine_menu() {
         echo "[7] Test Wine"
         echo "[8] Run a Windows program (.exe)"
         echo "[9] Wine Desktop resolution (now: $(wine_desktop_res))"
+        echo "[10] Reset Wine prefix (fixes a silent 'exited with code 1')"
         echo "[0] Back"
 
         printf "> "
@@ -901,6 +929,7 @@ wine_menu() {
             7) wine_test ;;
             8) wine_run_exe ;;
             9) wine_choose_desktop_res ;;
+            10) wine_reset_prefix ;;
             0) return ;;
             *) warn "Unknown option." ;;
         esac
